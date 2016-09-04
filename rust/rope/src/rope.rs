@@ -17,6 +17,8 @@
 
 use std::cmp::{min,max};
 use std::borrow::Cow;
+use std::str::FromStr;
+use std::string::ParseError;
 
 use tree::{Leaf, Node, NodeInfo, Metric, TreeBuilder, Cursor};
 use interval::Interval;
@@ -54,7 +56,7 @@ impl Leaf for String {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct RopeInfo {
     lines: usize,
 }
@@ -79,6 +81,7 @@ impl NodeInfo for RopeInfo {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct BaseMetric(());
 
 impl Metric<RopeInfo> for BaseMetric {
@@ -134,6 +137,7 @@ impl Metric<RopeInfo> for BaseMetric {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct LinesMetric(usize);  // number of lines
 
 impl Metric<RopeInfo> for LinesMetric {
@@ -153,7 +157,7 @@ impl Metric<RopeInfo> for LinesMetric {
     fn to_base_units(s: &String, in_measured_units: usize) -> usize {
         let mut offset = 0;
         for _ in 0..in_measured_units {
-            match s[offset..].as_bytes().iter().position(|&c| c == b'\n') {
+            match memchr(b'\n', &s.as_bytes()[offset..]) {
                 Some(pos) => offset += pos + 1,
                 _ => panic!("to_base_units called with arg too large")
             }
@@ -171,7 +175,7 @@ impl Metric<RopeInfo> for LinesMetric {
     }
 
     fn next(s: &String, offset: usize) -> Option<usize> {
-        s.as_bytes()[offset..].iter().position(|&c| c == b'\n')
+        memchr(b'\n', &s.as_bytes()[offset..])
             .map(|pos| offset + pos + 1)
     }
 
@@ -179,6 +183,11 @@ impl Metric<RopeInfo> for LinesMetric {
 }
 
 // Low level functions
+
+// TODO: use burntsushi memchr
+pub fn memchr(needle: u8, haystack: &[u8]) -> Option<usize> {
+    haystack.iter().position(|&b| b == needle)
+}
 
 // TODO: explore ways to make this faster - SIMD would be a big win
 // memchr is probably best for now
@@ -217,13 +226,16 @@ fn find_leaf_split(s: &str, minsplit: usize) -> usize {
 
 // Additional APIs custom to strings
 
-impl Rope {
-    pub fn from_str(s: &str) -> Rope {
+impl FromStr for Rope {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Rope, Self::Err> {
         let mut b = TreeBuilder::new();
         b.push_str(s);
-        b.build()
+        Ok(b.build())
     }
+}
 
+impl Rope {
     pub fn edit_str(&mut self, start: usize, end: usize, new: &str) {
         let mut b = TreeBuilder::new();
         // TODO: may make this method take the iv directly
@@ -236,6 +248,12 @@ impl Rope {
     }
 
     // encourage callers to use Cursor instead?
+
+    /// Determine whether `offset` lies on a codepoint boundary.
+    pub fn is_codepoint_boundary(&self, offset: usize) -> bool {
+        let mut cursor = Cursor::new(self, offset);
+        cursor.is_boundary::<BaseMetric>()
+    }
 
     /// Return the offset of the codepoint before `offset`.
     pub fn prev_codepoint_offset(&self, offset: usize) -> Option<usize> {
@@ -275,8 +293,11 @@ impl Rope {
     /// The line number is 0-based.
     ///
     /// Time complexity: O(log n)
-    pub fn offset_of_line(&self, offset: usize) -> usize {
-        self.convert_metrics::<LinesMetric, BaseMetric>(offset)
+    pub fn offset_of_line(&self, line: usize) -> usize {
+        if line > self.measure::<LinesMetric>() {
+            return self.len();
+        }
+        self.convert_metrics::<LinesMetric, BaseMetric>(line)
     }
 
     /// Returns an iterator over chunks of the rope.
@@ -384,7 +405,7 @@ impl TreeBuilder<RopeInfo> {
 
 impl<T: AsRef<str>> From<T> for Rope {
     fn from(s: T) -> Rope {
-        Rope::from_str(s.as_ref())
+        Rope::from_str(s.as_ref()).unwrap()
     }
 }
 
@@ -445,7 +466,7 @@ impl<'a> Iterator for LinesRaw<'a> {
                     return None;
                 }
             }
-            match self.fragment.as_bytes().iter().position(|&c| c == b'\n') {
+            match memchr(b'\n', self.fragment.as_bytes()) {
                 Some(i) => {
                     result = cow_append(result, &self.fragment[.. i + 1]);
                     self.fragment = &self.fragment[i + 1 ..];

@@ -48,7 +48,7 @@ impl Leaf for BreaksLeaf {
         //print_err!("push_maybe_split {:?} {:?} {}", self, other, iv);
         let (start, end) = iv.start_end();
         let start_test = if iv.is_start_closed() { start } else { start + 1 };
-        for &v in other.data.iter() {
+        for &v in &other.data {
             if start_test <= v && v <= end {
                 self.data.push(v - start + self.len);
             }
@@ -89,6 +89,7 @@ impl NodeInfo for BreaksInfo {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct BreaksMetric(());
 
 impl Metric<BreaksInfo> for BreaksMetric {
@@ -138,7 +139,7 @@ impl Metric<BreaksInfo> for BreaksMetric {
                 }
             }
         }
-        l.data.last().map(|&offset| offset)
+        l.data.last().cloned()
     }
 
     fn next(l: &BreaksLeaf, offset: usize) -> Option<usize> {
@@ -154,6 +155,7 @@ impl Metric<BreaksInfo> for BreaksMetric {
     fn can_fragment() -> bool { true }
 }
 
+#[derive(Copy, Clone)]
 pub struct BreaksBaseMetric(());
 
 impl Metric<BreaksInfo> for BreaksBaseMetric {
@@ -203,12 +205,18 @@ pub struct BreakBuilder {
     leaf: BreaksLeaf,
 }
 
-impl BreakBuilder {
-    pub fn new() -> BreakBuilder {
+impl Default for BreakBuilder {
+    fn default() -> BreakBuilder {
         BreakBuilder {
             b: TreeBuilder::new(),
             leaf: BreaksLeaf::default(),
         }
+    }
+}
+
+impl BreakBuilder {
+    pub fn new() -> BreakBuilder {
+        BreakBuilder::default()
     }
 
     pub fn add_break(&mut self, len: usize) {
