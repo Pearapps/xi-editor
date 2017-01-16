@@ -35,7 +35,6 @@ use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex, Condvar};
 use std::sync::mpsc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crossbeam::scope;
 
 use serde_json::builder::ObjectBuilder;
 use serde_json::Value;
@@ -347,7 +346,7 @@ impl<W:Write> RpcPeer<W> {
         }
     }
 
-    // Get a message from the recieve queue if available.
+    // Get a message from the receive queue if available.
     fn try_get_rx(&self) -> Option<Value> {
         let mut queue = self.0.rx_queue.lock().unwrap();
         queue.pop_front()
